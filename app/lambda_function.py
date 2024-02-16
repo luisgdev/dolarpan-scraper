@@ -1,8 +1,11 @@
 """Scraping Telegram channel functions"""
 
+# pylint: disable=broad-except, wrong-import-position
+
 import logging
 import re
 import sys
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pprint import pformat
 from typing import List, Optional
@@ -13,10 +16,37 @@ import requests
 from bs4 import BeautifulSoup
 from requests import Response
 
-# pylint: disable=broad-except
-
 logger = logging.getLogger()
 logger.setLevel("ERROR")
+
+
+N_MSG_TO_CHECK: int = 4
+
+
+@dataclass
+class HasASource:
+    """Object that may have a source property"""
+
+    source: Optional[str]
+
+    @classmethod
+    def from_instance(cls, instance):
+        """Make this dataclass extendable"""
+        return cls(**asdict(instance))
+
+
+@dataclass
+class ExchangeRate(HasASource):
+    """Exchange rate model"""
+
+    rate: float
+
+
+@dataclass
+class ParsedItem(HasASource):
+    """Parsed item model"""
+
+    text: str
 
 
 class Source(StrEnum):
@@ -30,9 +60,9 @@ class Html(StrEnum):
     """HTML parser constants"""
 
     PARSER = "lxml"
-    CLASS = "class"
-    TARGET_TAG = "div"
-    TARGET_CLASS = "tgme_widget_message_text"
+    TARGET_TEXT_CLASS = "tgme_widget_message_text"
+    TARGET_HREF_CLASS = "tgme_widget_message_photo_wrap"
+    TARGET_PARENT_CLASS = "tgme_widget_message_bubble"
 
 
 class ScraperException(Exception):
@@ -72,7 +102,7 @@ def _get_page(url: str) -> Response:
 
 def _parse_channel(
     source_url: str, page_content: Optional[str] = None
-) -> Optional[List[str]]:
+) -> Optional[List[ParsedItem]]:
     """
     Parse paralelo telegram channel and return last rate messages.
     :param source_url: URL of the webpage (str).
@@ -84,14 +114,22 @@ def _parse_channel(
     if page is None:
         return None
     soup = BeautifulSoup(page.text, Html.PARSER)
-    divs = soup.find_all(Html.TARGET_TAG)
-    for div in divs:
-        if Html.TARGET_CLASS in div[Html.CLASS]:
-            result.append(div.text)
+    divs = soup.find_all("div", class_=Html.TARGET_PARENT_CLASS)
+    for i in range(N_MSG_TO_CHECK + 1):
+        result.append(
+            ParsedItem(
+                text=divs[-1 - i]
+                .find_all("div", class_=Html.TARGET_TEXT_CLASS)[0]
+                .text,
+                source=divs[-1 - i]
+                .find_all("a", class_=Html.TARGET_HREF_CLASS)[0]
+                .get("href"),
+            )
+        )
     return result
 
 
-def get_paralelo_rate(text: Optional[str] = None) -> Optional[float]:
+def _get_paralelo_rate(text: Optional[str] = None) -> Optional[ExchangeRate]:
     """
     Get PARALELO rate from a telegram channel.
     :param text: Message from channel (str).
@@ -99,28 +137,31 @@ def get_paralelo_rate(text: Optional[str] = None) -> Optional[float]:
     """
     try:
         if text is None:
-            items: List[str] = _parse_channel(source_url=Source.PARALELO)
-            # Check the latest 4 messages
-            for i in range(5):
-                text = items[-1 - i]
-                result = _extract_rate(text.lower(), "bs. ")
+            items: List[ParsedItem] = _parse_channel(source_url=Source.PARALELO)
+            for item in items:
+                result = _extract_rate(item.text.lower(), "bs. ")
                 if result:
-                    return result
-        return _extract_rate(text, "bs. ")
+                    return ExchangeRate(rate=result, source=item.source)
+        return ExchangeRate(rate=_extract_rate(text, "bs. "), source=None)
     except ScraperException as ex:
         logger.exception(pformat(ex))
         return None
 
 
-def get_bcv_rate(text: Optional[str] = None) -> Optional[float]:
+def _get_bcv_rate(text: Optional[str] = None) -> Optional[ExchangeRate]:
     """
     Get BCV rate from a telegram channel.
     :param text: Message from channel (str).
-    :return: Exchange rate (float).
+    :return: Exchange rate (ExchangeRate).
     """
     try:
-        text = text if text else _parse_channel(source_url=Source.BCV)[-1]
-        return _extract_rate(text.lower())
+        if not text:
+            items = _parse_channel(source_url=Source.BCV)
+            for item in items:
+                result = _extract_rate(item.text.lower(), "bs. ")
+                if result:
+                    return ExchangeRate(rate=result, source=item.source)
+        return ExchangeRate(rate=_extract_rate(text, "bs. "), source=None)
     except ScraperException as ex:
         logger.exception(pformat(ex))
         return None
@@ -131,8 +172,8 @@ def lambda_handler(event, context):
     return {
         "statusCode": 200,
         "message": {
-            "bcv_rate": get_bcv_rate(),
-            "paralelo_rate": get_paralelo_rate(),
+            "bcv": asdict(_get_bcv_rate()),
+            "paralelo": asdict(_get_paralelo_rate()),
         },
         "headers": {
             "Content-Type": "application/json",

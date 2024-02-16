@@ -3,12 +3,11 @@
 import pytest
 
 from app.lambda_function import (
-    _extract_rate,
-    get_bcv_rate,
-    get_paralelo_rate,
     ScraperException,
+    _extract_rate,
+    _get_bcv_rate,
+    _get_paralelo_rate,
 )
-
 
 BCV_CASES = (
     (
@@ -58,6 +57,10 @@ PARALELO_CASES = (
         """,
         38.09,
     ),
+    (
+        "'\nEnParaleloVzla\n🗓 02/02/2024🕒 8:50 AM💵 Bs. 38,09🔺 0,35% Bs 0,14\n128.5K views12:47\n",
+        38.09,
+    ),
 )
 
 FAIL_CASES = (
@@ -86,7 +89,7 @@ def test__extract_rate(text: str, result: float):
 )
 def test_get_bcv_rate(message: str, result: float):
     """Test BCV function"""
-    assert get_bcv_rate(text=message) == result
+    assert _get_bcv_rate(text=message).rate == result
 
 
 @pytest.mark.parametrize(
@@ -95,4 +98,4 @@ def test_get_bcv_rate(message: str, result: float):
 )
 def test_get_paralelo_rate(message: str, result: str):
     """Test Paralelo function"""
-    assert get_paralelo_rate(text=message) == result
+    assert _get_paralelo_rate(text=message).rate == result
