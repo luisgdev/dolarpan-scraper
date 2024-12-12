@@ -78,7 +78,7 @@ def _extract_rate(text: str, start: Optional[str] = None) -> float:
     """
     patterns = (r"[ ]\d{1,2}[.,]\d{1,2}", r"\d{1}[.,]\d{1,2}")
     if start and start in text:
-        text = text[text.find(start) :]
+        text = text[text.find(start):]
     for pat in patterns:
         match = re.search(pat, text, flags=0)
         if match:
@@ -171,13 +171,12 @@ def lambda_handler(event, context):
     """AWS Lambda handler"""
     return {
         "statusCode": 200,
-        "message": {
-            "bcv": asdict(_get_bcv_rate()),
-            "paralelo": asdict(_get_paralelo_rate()),
-        },
-        "headers": {
-            "Content-Type": "application/json",
-        },
+        "body": {
+            "message": {
+                "bcv": asdict(_get_bcv_rate()),
+                "paralelo": asdict(_get_paralelo_rate()),
+            },
+        }
     }
 
 
